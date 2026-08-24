@@ -64,11 +64,6 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="login-hint">
-          Seeded admin login → admin@example.com / Admin@123
-          <br />
-          Run backend/seed.py first if this account doesn't exist yet.
-        </div>
       </div>
     </div>
   )

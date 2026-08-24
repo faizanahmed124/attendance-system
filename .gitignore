@@ -1,0 +1,71 @@
+# ============================================================
+# Environment / secrets - NEVER commit these (machine-specific)
+# ============================================================
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# ============================================================
+# Backend (Python / FastAPI)
+# ============================================================
+backend/venv/
+venv/
+env/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database files - real data, never shared via git between environments
+backend/*.db
+backend/*.sqlite
+backend/*.sqlite3
+*.db
+*.sqlite
+*.sqlite3
+
+# User-uploaded files (photos, documents) - server-specific runtime data
+backend/uploads/
+uploads/
+
+# ============================================================
+# Frontend (Node / Vite / React)
+# ============================================================
+frontend/node_modules/
+node_modules/
+frontend/dist/
+dist/
+frontend/.vite/
+frontend/build/
+npm-debug.log*
+yarn-error.log*
+yarn-debug.log*
+.pnpm-debug.log*
+
+# ============================================================
+# Editor / IDE
+# ============================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ============================================================
+# OS junk
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# Misc build/output artifacts that sometimes end up in the repo root
+# ============================================================
+*.log
+*.zip
+*.tar.gz
