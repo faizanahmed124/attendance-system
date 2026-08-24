@@ -1,0 +1,22 @@
+import axiosClient from './axiosClient'
+
+export const listAttendance = (params = {}) => axiosClient.get('/api/attendance/', { params })
+export const getAttendance = (id) => axiosClient.get(`/api/attendance/${id}`)
+export const updateAttendance = (id, data) => axiosClient.put(`/api/attendance/${id}`, data)
+export const deleteAttendance = (id) => axiosClient.delete(`/api/attendance/${id}`)
+export const checkIn = (data) => axiosClient.post('/api/attendance/check-in', data)
+export const listCheckIns = (employeeId) => axiosClient.get(`/api/attendance/check-in/${employeeId}`)
+export const listCheckInLogs = (params = {}) => axiosClient.get('/api/attendance/check-in-logs', { params })
+export const markAttendance = (data) => axiosClient.post('/api/attendance/mark', data)
+export const markAttendanceBulk = (data) => axiosClient.post('/api/attendance/mark-bulk', data)
+export const listShiftTypes = () => axiosClient.get('/api/attendance/shift-types')
+export const getShiftType = (id) => axiosClient.get(`/api/attendance/shift-types/${id}`)
+export const createShiftType = (data) => axiosClient.post('/api/attendance/shift-types', data)
+export const updateShiftType = (id, data) => axiosClient.put(`/api/attendance/shift-types/${id}`, data)
+export const deleteShiftType = (id) => axiosClient.delete(`/api/attendance/shift-types/${id}`)
+
+export const listShiftAssignments = (params = {}) => axiosClient.get('/api/attendance/shift-assignments', { params })
+export const createShiftAssignment = (data) => axiosClient.post('/api/attendance/shift-assignments', data)
+export const bulkCreateShiftAssignments = (data) => axiosClient.post('/api/attendance/shift-assignments/bulk', data)
+export const updateShiftAssignment = (id, data) => axiosClient.put(`/api/attendance/shift-assignments/${id}`, data)
+export const deleteShiftAssignment = (id) => axiosClient.delete(`/api/attendance/shift-assignments/${id}`)
