@@ -10,6 +10,9 @@ The check-in endpoint and data model are already shaped so a biometric
 device sync job can plug in later without changing the schema — see
 "Adding biometric later" below.
 
+github token 
+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
+
 ## Project structure
 
 ```
@@ -125,6 +128,7 @@ connection errors every couple of minutes.
 - CCTV camera integration only stores connection config for now — no
   stream viewer or recording pull is wired up.
 - No automated tests yet — add pytest for the backend as the next step.
+
 
 Build these one module at a time the same way the existing modules are
 structured (model → schema → service → router), and register any new
