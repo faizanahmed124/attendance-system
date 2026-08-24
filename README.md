@@ -10,8 +10,6 @@ The check-in endpoint and data model are already shaped so a biometric
 device sync job can plug in later without changing the schema — see
 "Adding biometric later" below.
 
-github token 
-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
 
 ## Project structure
 
