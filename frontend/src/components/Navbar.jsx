@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { Menu } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
-import { globalSearch } from '../api/searchApi'
 import { MODULE_OVERVIEWS } from '../config/moduleOverviews'
 import NotificationBell from './NotificationBell'
 
@@ -36,10 +35,51 @@ const titles = {
   '/payroll/salary-slips': 'Salary Slips',
 }
 
-const typeIcon = {
-  employee: 'E', department: 'D', company: 'C', designation: 'T',
-  job_opening: 'J', applicant: 'A',
-}
+// Static list of navigable modules/pages - search matches against these
+// names only, never individual data records. Selecting one just
+// navigates to that page.
+const NAV_ITEMS = [
+  { label: 'Dashboard', to: '/' },
+  { label: 'Employees', to: '/employees' },
+  { label: 'Departments', to: '/departments' },
+  { label: 'Designations', to: '/designations' },
+  { label: 'Companies', to: '/companies' },
+  { label: 'Attendance', to: '/attendance' },
+  { label: 'Check-in / Check-out', to: '/check-in' },
+  { label: 'Check-in Logs', to: '/check-in-logs' },
+  { label: 'Shift Types', to: '/attendance/shift-types' },
+  { label: 'Shift Assignments', to: '/attendance/shift-assignments' },
+  { label: 'Job Openings', to: '/recruitment/job-openings' },
+  { label: 'Applicants', to: '/recruitment/applicants' },
+  { label: 'Chart of Accounts', to: '/accounts/chart-of-accounts' },
+  { label: 'Journal Entries', to: '/accounts/journal-entries' },
+  { label: 'Expense Claims', to: '/accounts/expense-claims' },
+  { label: 'Salary Postings', to: '/accounts/salary-postings' },
+  { label: 'Payroll Entries', to: '/payroll/entries' },
+  { label: 'Salary Slips', to: '/payroll/salary-slips' },
+  { label: 'Salary Components', to: '/payroll/salary-components' },
+  { label: 'Salary Structures', to: '/payroll/salary-structures' },
+  { label: 'Salary Structure Assignments', to: '/payroll/salary-structure-assignments' },
+  { label: 'Loans', to: '/loans' },
+  { label: 'Loan Applications', to: '/loans/applications' },
+  { label: 'Loan Types', to: '/loans/types' },
+  { label: 'Leave Applications', to: '/leaves/applications' },
+  { label: 'Leave Balance', to: '/leaves/balance' },
+  { label: 'Leave Allocations', to: '/leaves/allocations' },
+  { label: 'Leave Types', to: '/leaves/types' },
+  { label: 'Employee Onboarding', to: '/onboarding' },
+  { label: 'Employee Offboarding', to: '/offboarding' },
+  { label: 'Travel Requests', to: '/travel-requests' },
+  { label: 'Recognition Wall', to: '/recognition' },
+  { label: 'Help Desk', to: '/helpdesk/tickets' },
+  { label: 'Reports', to: '/reports' },
+  { label: 'Users', to: '/users' },
+  { label: 'Permissions', to: '/settings/permissions' },
+  { label: 'System Settings', to: '/settings/system' },
+  { label: 'Data Import', to: '/settings/data-import' },
+  { label: 'Biometric Devices', to: '/integration/biometric-devices' },
+  { label: 'CCTV Cameras', to: '/integration/cctv-cameras' },
+]
 
 export default function Navbar({ onMenuClick }) {
   const { user, logout } = useAuth()
@@ -71,7 +111,6 @@ export default function Navbar({ onMenuClick }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searchOpen, setSearchOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
   const searchRef = useRef(null)
@@ -90,7 +129,6 @@ export default function Navbar({ onMenuClick }) {
   const handleChange = (e) => {
     const value = e.target.value
     setQuery(value)
-    clearTimeout(debounceRef.current)
 
     if (!value.trim()) {
       setResults([])
@@ -98,22 +136,16 @@ export default function Navbar({ onMenuClick }) {
       return
     }
 
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true)
-      try {
-        const res = await globalSearch(value.trim())
-        setResults(res.data.results)
-        setSearchOpen(true)
-      } finally {
-        setLoading(false)
-      }
-    }, 300)
+    const q = value.trim().toLowerCase()
+    const matches = NAV_ITEMS.filter((item) => item.label.toLowerCase().includes(q))
+    setResults(matches)
+    setSearchOpen(true)
   }
 
   const handleSelect = (item) => {
     setSearchOpen(false)
     setQuery('')
-    navigate(item.url)
+    navigate(item.to)
   }
 
   const initials = user?.full_name
@@ -137,21 +169,18 @@ export default function Navbar({ onMenuClick }) {
         />
         {searchOpen && (
           <div className="search-dropdown">
-            {loading && <div className="search-empty">Searching…</div>}
-            {!loading && results.length === 0 && <div className="search-empty">No matches for "{query}"</div>}
-            {!loading && results.map((item) => (
-              <div key={`${item.type}-${item.id}`} className="search-result" onClick={() => handleSelect(item)}>
-                <span className="search-result-badge">{typeIcon[item.type] || '?'}</span>
-                <div>
-                  <div className="search-result-title">{item.title}</div>
-                  <div className="search-result-sub">{item.subtitle}</div>
-                </div>
+            {results.length === 0 && <div className="search-empty">No matching pages for "{query}"</div>}
+            {results.map((item) => (
+              <div key={item.to} className="search-result" onClick={() => handleSelect(item)}>
+                <div className="search-result-title">{item.label}</div>
               </div>
             ))}
           </div>
         )}
       </div>
+
       <NotificationBell />
+
       <div className="user-menu" ref={userMenuRef}>
         <div className="user-chip" onClick={() => setUserMenuOpen((o) => !o)}>
           <div>
@@ -189,7 +218,7 @@ export default function Navbar({ onMenuClick }) {
               Log out
             </button>
           </div>
-          
+
         )}
       </div>
     </div>

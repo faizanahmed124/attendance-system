@@ -1,215 +1,130 @@
 """
-Central registry describing every doctype the Data Import tool can target.
-To make another doctype importable, add ONE new entry here - no other
-backend changes needed (see router.py, which is fully generic and reads
-everything from this dict).
+Name-based Data Import registry. Every doctype declares its fields; any
+field of type "lookup" is shown to the user as a plain NAME (e.g.
+"Company", "Department") in the template/CSV - never a raw foreign-key
+ID. On import, that name is resolved to the correct ID automatically
+(case-insensitive, whitespace-trimmed). On export, IDs are resolved back
+to names the same way, so the file you download is exactly what you'd
+re-upload.
 
-Field shape:
-    {
-        "label": str                     - shown in the Doctype dropdown
-        "model": SQLAlchemy model class
-        "create_schema": Pydantic Create schema
-        "update_schema": Pydantic Update schema
-        "unique_field": str               - column used to decide update-vs-create on import
-        "fields": [
-            {"name": str, "label": str, "type": "string"|"int"|"float"|"bool"|"date", "required": bool}
-        ]
-    }
+Field types:
+  - "text"   : plain string column, written as-is
+  - "date"   : plain date column, expects YYYY-MM-DD
+  - "number" : plain numeric column
+  - "lookup" : foreign key - user provides a NAME, we resolve it against
+               `lookup_table`/`lookup_column` to get the real ID
 
-Doctypes deliberately NOT registered here: Attendance, Check-in, Shift
-Assignment, Journal Entry, Expense Claim, Salary Posting, Payroll Entry,
-Salary Slip, Job Applicant, Interview - these are transactional/derived
-records with calculated fields or multi-step business logic (balance
-validation, attendance sync, etc.) that a blind CSV upsert would bypass or
-corrupt. Import is for master data.
+`key_field` is the column used to decide whether a row is a create or an
+update (e.g. Employee's `employee_code`, Department's `name`) - if a row
+value matches an EXISTING record's key_field, that record is updated;
+otherwise a new one is created.
+
+Verified against the live schema captured via inspect_schema.py.
 """
-from app.modules.employee.model import Employee
-from app.modules.employee.schema import EmployeeCreate, EmployeeUpdate
-from app.modules.department.model import Department
-from app.modules.department.schema import DepartmentCreate, DepartmentUpdate
-from app.modules.company.model import Company
-from app.modules.company.schema import CompanyCreate, CompanyUpdate
-from app.modules.designation.model import Designation
-from app.modules.designation.schema import DesignationCreate, DesignationUpdate
-from app.modules.attendance.model import ShiftType
-from app.modules.attendance.schema import ShiftTypeCreate, ShiftTypeUpdate
-from app.modules.accounts.model import Account, CostCenter
-from app.modules.accounts.schema import AccountCreate, AccountUpdate, CostCenterCreate
-from app.modules.integration.model import BiometricDevice, CCTVCamera
-from app.modules.integration.schema import (
-    BiometricDeviceCreate, BiometricDeviceUpdate, CCTVCameraCreate, CCTVCameraUpdate,
-)
-from app.modules.recruitment.model import JobOpening
-from app.modules.recruitment.schema import JobOpeningCreate, JobOpeningUpdate
 
-
-DOCTYPE_REGISTRY = {
+DOCTYPES = {
     "employee": {
         "label": "Employee",
-        "permission_module": "employee",
-        "model": Employee,
-        "create_schema": EmployeeCreate,
-        "update_schema": EmployeeUpdate,
-        "unique_field": "employee_code",
+        "table": "employees",
+        "key_field": "employee_code",
         "fields": [
-            {"name": "employee_code", "label": "Employee ID", "type": "string", "required": True},
-            {"name": "full_name", "label": "Full Name", "type": "string", "required": True},
-            {"name": "email", "label": "Company Email", "type": "string", "required": True},
-            {"name": "personal_email", "label": "Personal Email", "type": "string", "required": False},
-            {"name": "phone", "label": "Phone", "type": "string", "required": False},
-            {"name": "cnic", "label": "CNIC", "type": "string", "required": False},
-            {"name": "gender", "label": "Gender", "type": "string", "required": False},
-            {"name": "date_of_birth", "label": "Date of Birth", "type": "date", "required": False},
-            {"name": "company_id", "label": "Company ID", "type": "int", "required": True},
-            {"name": "department_id", "label": "Department ID", "type": "int", "required": True},
-            {"name": "designation_id", "label": "Designation ID", "type": "int", "required": True},
-            {"name": "branch", "label": "Branch", "type": "string", "required": False},
-            {"name": "grade", "label": "Grade", "type": "string", "required": False},
-            {"name": "employment_type", "label": "Employment Type", "type": "string", "required": False},
-            {"name": "date_of_joining", "label": "Date of Joining", "type": "date", "required": True},
-            {"name": "contract_expiry", "label": "Contract Expiry", "type": "date", "required": False},
-            {"name": "salary", "label": "Basic Pay", "type": "float", "required": False},
-            {"name": "ctc", "label": "CTC", "type": "float", "required": False},
-            {"name": "status", "label": "Status", "type": "string", "required": False},
-            {"name": "biometric_id", "label": "Biometric ID", "type": "string", "required": False},
+            {"key": "employee_code", "label": "Employee Code", "type": "text", "required": True},
+            {"key": "full_name", "label": "Full Name", "type": "text", "required": True},
+            {"key": "email", "label": "Email", "type": "text"},
+            {"key": "phone", "label": "Phone", "type": "text"},
+            {"key": "gender", "label": "Gender", "type": "text"},
+            {"key": "date_of_birth", "label": "Date of Birth", "type": "date"},
+            {"key": "date_of_joining", "label": "Date of Joining", "type": "date"},
+            {"key": "company_id", "label": "Company", "type": "lookup", "lookup_table": "companies", "lookup_column": "name", "required": True},
+            {"key": "department_id", "label": "Department", "type": "lookup", "lookup_table": "departments", "lookup_column": "name"},
+            {"key": "designation_id", "label": "Designation", "type": "lookup", "lookup_table": "designations", "lookup_column": "title"},
+            {"key": "shift_type_id", "label": "Shift Type", "type": "lookup", "lookup_table": "shift_types", "lookup_column": "name"},
+            {"key": "employment_type", "label": "Employment Type", "type": "text"},
+            {"key": "status", "label": "Status", "type": "text", "default": "active"},
+            {"key": "bank_name", "label": "Bank Name", "type": "text"},
+            {"key": "bank_account_no", "label": "Bank Account No.", "type": "text"},
         ],
     },
     "department": {
         "label": "Department",
-        "permission_module": "department",
-        "model": Department,
-        "create_schema": DepartmentCreate,
-        "update_schema": DepartmentUpdate,
-        "unique_field": "name",
+        "table": "departments",
+        "key_field": "name",
         "fields": [
-            {"name": "name", "label": "Department Name", "type": "string", "required": True},
-            {"name": "company_id", "label": "Company ID", "type": "int", "required": True},
-            {"name": "parent_department_id", "label": "Parent Department ID", "type": "int", "required": False},
-            {"name": "is_active", "label": "Is Active", "type": "bool", "required": False},
-        ],
-    },
-    "company": {
-        "label": "Company",
-        "permission_module": "company",
-        "model": Company,
-        "create_schema": CompanyCreate,
-        "update_schema": CompanyUpdate,
-        "unique_field": "name",
-        "fields": [
-            {"name": "name", "label": "Company Name", "type": "string", "required": True},
-            {"name": "abbreviation", "label": "Abbreviation", "type": "string", "required": True},
-            {"name": "default_currency", "label": "Currency", "type": "string", "required": False},
-            {"name": "country", "label": "Country", "type": "string", "required": False},
+            {"key": "name", "label": "Department Name", "type": "text", "required": True},
+            {"key": "company_id", "label": "Company", "type": "lookup", "lookup_table": "companies", "lookup_column": "name", "required": True},
+            {"key": "parent_department_id", "label": "Parent Department", "type": "lookup", "lookup_table": "departments", "lookup_column": "name"},
+            {"key": "is_group", "label": "Is Group (yes/no)", "type": "bool"},
+            {"key": "is_active", "label": "Active (yes/no)", "type": "bool", "default": "yes"},
         ],
     },
     "designation": {
         "label": "Designation",
-        "permission_module": "designation",
-        "model": Designation,
-        "create_schema": DesignationCreate,
-        "update_schema": DesignationUpdate,
-        "unique_field": "title",
+        "table": "designations",
+        "key_field": "title",
         "fields": [
-            {"name": "title", "label": "Title", "type": "string", "required": True},
-            {"name": "description", "label": "Description", "type": "string", "required": False},
-            {"name": "is_active", "label": "Is Active", "type": "bool", "required": False},
+            {"key": "title", "label": "Title", "type": "text", "required": True},
+            {"key": "description", "label": "Description", "type": "text"},
+            {"key": "is_active", "label": "Active (yes/no)", "type": "bool", "default": "yes"},
         ],
     },
     "shift_type": {
         "label": "Shift Type",
-        "permission_module": "attendance",
-        "model": ShiftType,
-        "create_schema": ShiftTypeCreate,
-        "update_schema": ShiftTypeUpdate,
-        "unique_field": "name",
+        "table": "shift_types",
+        "key_field": "name",
         "fields": [
-            {"name": "name", "label": "Shift Name", "type": "string", "required": True},
-            {"name": "start_time", "label": "Start Time (HH:MM:SS)", "type": "string", "required": True},
-            {"name": "end_time", "label": "End Time (HH:MM:SS)", "type": "string", "required": True},
-            {"name": "late_entry_grace_minutes", "label": "Late Entry Grace (min)", "type": "int", "required": False},
-            {"name": "early_exit_grace_minutes", "label": "Early Exit Grace (min)", "type": "int", "required": False},
+            {"key": "name", "label": "Shift Name", "type": "text", "required": True},
+            {"key": "start_time", "label": "Start Time (HH:MM)", "type": "text", "required": True},
+            {"key": "end_time", "label": "End Time (HH:MM)", "type": "text", "required": True},
         ],
     },
-    "account": {
-        "label": "Account (Chart of Accounts)",
-        "permission_module": "accounts",
-        "model": Account,
-        "create_schema": AccountCreate,
-        "update_schema": AccountUpdate,
-        "unique_field": "account_name",
+    "attendance": {
+        "label": "Attendance",
+        "table": "attendance",
+        "key_field": None,  # always inserts new rows - attendance isn't a natural upsert target
         "fields": [
-            {"name": "account_name", "label": "Account Name", "type": "string", "required": True},
-            {"name": "account_number", "label": "Account Number", "type": "string", "required": False},
-            {"name": "company_id", "label": "Company ID", "type": "int", "required": True},
-            {"name": "parent_account_id", "label": "Parent Account ID", "type": "int", "required": False},
-            {"name": "root_type", "label": "Root Type", "type": "string", "required": True},
-            {"name": "account_type", "label": "Account Type", "type": "string", "required": False},
-            {"name": "is_group", "label": "Is Group", "type": "bool", "required": False},
-            {"name": "currency", "label": "Currency", "type": "string", "required": False},
+            {"key": "employee_id", "label": "Employee Code", "type": "lookup", "lookup_table": "employees", "lookup_column": "employee_code", "required": True},
+            {"key": "attendance_date", "label": "Date", "type": "date", "required": True},
+            {"key": "status", "label": "Status (Present/Absent/Half Day/On Leave)", "type": "text", "required": True},
+            {"key": "check_in_time", "label": "Check-in Time", "type": "text"},
+            {"key": "check_out_time", "label": "Check-out Time", "type": "text"},
         ],
     },
-    "cost_center": {
-        "label": "Cost Center",
-        "permission_module": "accounts",
-        "model": CostCenter,
-        "create_schema": CostCenterCreate,
-        "update_schema": None,  # no update schema built yet - import will only create, never update
-        "unique_field": "name",
+    "leave_application": {
+        "label": "Leave Application",
+        "table": "leave_applications",
+        "key_field": None,
         "fields": [
-            {"name": "name", "label": "Name", "type": "string", "required": True},
-            {"name": "company_id", "label": "Company ID", "type": "int", "required": True},
-            {"name": "parent_cost_center_id", "label": "Parent Cost Center ID", "type": "int", "required": False},
-            {"name": "is_group", "label": "Is Group", "type": "bool", "required": False},
-        ],
-    },
-    "biometric_device": {
-        "label": "Biometric Device",
-        "permission_module": "integration",
-        "model": BiometricDevice,
-        "create_schema": BiometricDeviceCreate,
-        "update_schema": BiometricDeviceUpdate,
-        "unique_field": "device_name",
-        "fields": [
-            {"name": "device_name", "label": "Device Name", "type": "string", "required": True},
-            {"name": "ip_address", "label": "IP Address", "type": "string", "required": True},
-            {"name": "port", "label": "Port", "type": "int", "required": False},
-            {"name": "location", "label": "Location", "type": "string", "required": False},
-            {"name": "purpose", "label": "Purpose (Check-in/Check-out)", "type": "string", "required": True},
-            {"name": "device_type", "label": "Device Type", "type": "string", "required": False},
-            {"name": "status", "label": "Status", "type": "string", "required": False},
-        ],
-    },
-    "cctv_camera": {
-        "label": "CCTV Camera",
-        "permission_module": "integration",
-        "model": CCTVCamera,
-        "create_schema": CCTVCameraCreate,
-        "update_schema": CCTVCameraUpdate,
-        "unique_field": "camera_name",
-        "fields": [
-            {"name": "camera_name", "label": "Camera Name", "type": "string", "required": True},
-            {"name": "ip_address", "label": "IP Address", "type": "string", "required": True},
-            {"name": "port", "label": "Port", "type": "int", "required": False},
-            {"name": "location", "label": "Location", "type": "string", "required": False},
-            {"name": "stream_url", "label": "Stream URL", "type": "string", "required": False},
-            {"name": "status", "label": "Status", "type": "string", "required": False},
+            {"key": "employee_id", "label": "Employee Code", "type": "lookup", "lookup_table": "employees", "lookup_column": "employee_code", "required": True},
+            {"key": "leave_type_id", "label": "Leave Type", "type": "lookup", "lookup_table": "leave_types", "lookup_column": "name", "required": True},
+            {"key": "from_date", "label": "From Date", "type": "date", "required": True},
+            {"key": "to_date", "label": "To Date", "type": "date", "required": True},
+            {"key": "reason", "label": "Reason", "type": "text"},
+            {"key": "status", "label": "Status (Open/Approved/Rejected)", "type": "text", "default": "Open"},
         ],
     },
     "job_opening": {
         "label": "Job Opening",
-        "permission_module": "recruitment",
-        "model": JobOpening,
-        "create_schema": JobOpeningCreate,
-        "update_schema": JobOpeningUpdate,
-        "unique_field": "title",
+        "table": "job_openings",
+        "key_field": "title",
         "fields": [
-            {"name": "title", "label": "Title", "type": "string", "required": True},
-            {"name": "company_id", "label": "Company ID", "type": "int", "required": True},
-            {"name": "department_id", "label": "Department ID", "type": "int", "required": True},
-            {"name": "designation_id", "label": "Designation ID", "type": "int", "required": True},
-            {"name": "positions", "label": "Positions", "type": "int", "required": False},
-            {"name": "description", "label": "Description", "type": "string", "required": False},
-            {"name": "status", "label": "Status", "type": "string", "required": False},
+            {"key": "title", "label": "Job Title", "type": "text", "required": True},
+            {"key": "company_id", "label": "Company", "type": "lookup", "lookup_table": "companies", "lookup_column": "name", "required": True},
+            {"key": "department_id", "label": "Department", "type": "lookup", "lookup_table": "departments", "lookup_column": "name"},
+            {"key": "designation_id", "label": "Designation", "type": "lookup", "lookup_table": "designations", "lookup_column": "title"},
+            {"key": "positions", "label": "Number of Positions", "type": "number"},
+            {"key": "status", "label": "Status", "type": "text", "default": "Open"},
+        ],
+    },
+    "job_applicant": {
+        "label": "Job Applicant",
+        "table": "job_applicants",
+        "key_field": None,
+        "fields": [
+            {"key": "full_name", "label": "Applicant Name", "type": "text", "required": True},
+            {"key": "email", "label": "Email", "type": "text"},
+            {"key": "phone", "label": "Phone", "type": "text"},
+            {"key": "job_opening_id", "label": "Job Opening", "type": "lookup", "lookup_table": "job_openings", "lookup_column": "title", "required": True},
+            {"key": "status", "label": "Status", "type": "text", "default": "Applied"},
         ],
     },
 }

@@ -1,24 +1,17 @@
 import axiosClient from './axiosClient'
 
 export const listImportDoctypes = () => axiosClient.get('/api/data-import/doctypes')
-export const getDoctypeFields = (doctype) => axiosClient.get(`/api/data-import/doctypes/${doctype}/fields`)
 
-export const downloadTemplate = (doctype, fields) =>
-  axiosClient.get(`/api/data-import/doctypes/${doctype}/template`, {
-    params: { fields: fields.join(',') },
-    responseType: 'blob',
-  })
+export const downloadTemplate = (doctypeKey) =>
+  axiosClient.get(`/api/data-import/${doctypeKey}/template`, { responseType: 'blob' })
 
-export const exportDoctypeData = (doctype, fields) =>
-  axiosClient.get(`/api/data-import/doctypes/${doctype}/export`, {
-    params: { fields: fields.join(',') },
-    responseType: 'blob',
-  })
+export const exportData = (doctypeKey) =>
+  axiosClient.get(`/api/data-import/${doctypeKey}/export`, { responseType: 'blob' })
 
-export const importDoctypeData = (doctype, file) => {
+export const importData = (doctypeKey, file) => {
   const formData = new FormData()
   formData.append('file', file)
-  return axiosClient.post(`/api/data-import/doctypes/${doctype}/import`, formData, {
+  return axiosClient.post(`/api/data-import/${doctypeKey}/import`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }

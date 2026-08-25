@@ -1,12 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { FileDown, FileUp, Download } from 'lucide-react'
-import {
-  listImportDoctypes, getDoctypeFields, downloadTemplate, exportDoctypeData, importDoctypeData,
-} from '../../api/dataImportApi'
+import { Download, Upload, FileSpreadsheet, CheckCircle2, XCircle } from 'lucide-react'
+import { listImportDoctypes, downloadTemplate, exportData, importData } from '../../api/dataImportApi'
+import { extractErrorMessage } from '../../utils/errorMessage'
 
-function downloadBlob(data, filename) {
-  const blob = new Blob([data], { type: 'text/csv' })
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -18,63 +15,40 @@ function downloadBlob(data, filename) {
 }
 
 export default function DataImport() {
-  const navigate = useNavigate()
   const [doctypes, setDoctypes] = useState([])
-  const [selectedDoctype, setSelectedDoctype] = useState('')
-  const [fields, setFields] = useState([])
-  const [selectedFields, setSelectedFields] = useState([])
+  const [selectedKey, setSelectedKey] = useState('')
   const [loading, setLoading] = useState(true)
-  const [loadingFields, setLoadingFields] = useState(false)
   const [file, setFile] = useState(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    listImportDoctypes().then((res) => setDoctypes(res.data)).finally(() => setLoading(false))
+    listImportDoctypes().then((res) => {
+      setDoctypes(res.data)
+      if (res.data.length) setSelectedKey(res.data[0].key)
+    }).finally(() => setLoading(false))
   }, [])
 
-  const handleSelectDoctype = (key) => {
-    setSelectedDoctype(key)
-    setResult(null)
-    setError('')
-    setFile(null)
-    if (!key) {
-      setFields([])
-      setSelectedFields([])
-      return
-    }
-    setLoadingFields(true)
-    getDoctypeFields(key).then((res) => {
-      setFields(res.data)
-      setSelectedFields(res.data.map((f) => f.name)) // all selected by default
-    }).finally(() => setLoadingFields(false))
-  }
-
-  const toggleField = (name, required) => {
-    if (required) return // required fields can't be unchecked
-    setSelectedFields((prev) =>
-      prev.includes(name) ? prev.filter((f) => f !== name) : [...prev, name]
-    )
-  }
+  const selected = doctypes.find((d) => d.key === selectedKey)
 
   const handleDownloadTemplate = async () => {
     setError('')
     try {
-      const res = await downloadTemplate(selectedDoctype, selectedFields)
-      downloadBlob(res.data, `${selectedDoctype}_template.csv`)
+      const res = await downloadTemplate(selectedKey)
+      downloadBlob(res.data, `${selectedKey}-template.csv`)
     } catch (err) {
-      setError('Could not download template')
+      setError(extractErrorMessage(err, 'Could not download template'))
     }
   }
 
-  const handleExportCurrent = async () => {
+  const handleExport = async () => {
     setError('')
     try {
-      const res = await exportDoctypeData(selectedDoctype, selectedFields)
-      downloadBlob(res.data, `${selectedDoctype}.csv`)
+      const res = await exportData(selectedKey)
+      downloadBlob(res.data, `${selectedKey}-export.csv`)
     } catch (err) {
-      setError('Could not export current data')
+      setError(extractErrorMessage(err, 'Could not export data'))
     }
   }
 
@@ -84,143 +58,125 @@ export default function DataImport() {
     setError('')
     setResult(null)
     try {
-      const res = await importDoctypeData(selectedDoctype, file)
+      const res = await importData(selectedKey, file)
       setResult(res.data)
+      setFile(null)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Could not import file')
+      setError(extractErrorMessage(err, 'Could not import file'))
     } finally {
       setImporting(false)
     }
   }
 
-  const doctypeLabel = doctypes.find((d) => d.key === selectedDoctype)?.label
+  if (loading) return <div className="card card-pad">Loading…</div>
 
   return (
-    <div>
+    <div style={{ maxWidth: 820, margin: '0 auto' }}>
       <div className="page-header">
         <div>
-          <button className="btn btn-outline btn-sm" style={{ marginBottom: 10 }} onClick={() => navigate('/modules/settings')}>
-            ← Back to Settings
-          </button>
           <h1>Data Import</h1>
-          <p>Pick a doctype, choose fields, download a template, fill it in, and upload it back.</p>
+          <p>Bulk import or export any doctype using plain field names - no IDs, ever.</p>
         </div>
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
-
       <div className="form-section">
-        <div className="form-section-header"><span className="num">1</span> Choose Doctype</div>
+        <div className="form-section-header"><span className="num">1</span> Choose what to import</div>
         <div className="form-section-body">
-          {loading ? (
-            <div style={{ color: 'var(--ink-faint)', fontSize: 13 }}>Loading doctypes…</div>
-          ) : (
-            <div className="field" style={{ maxWidth: 360 }}>
-              <label>Document Type</label>
-              <select value={selectedDoctype} onChange={(e) => handleSelectDoctype(e.target.value)}>
-                <option value="">— Select a doctype —</option>
-                {doctypes.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
-              </select>
-            </div>
+          <div className="field">
+            <label>Doctype</label>
+            <select value={selectedKey} onChange={(e) => { setSelectedKey(e.target.value); setResult(null); setError('') }}>
+              {doctypes.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
+            </select>
+          </div>
+
+          {selected && (
+            <>
+              <p style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 8, fontWeight: 600 }}>Fields for {selected.label}:</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+                {selected.fields.map((f) => (
+                  <span key={f.key} style={{
+                    fontSize: 11.5, padding: '4px 10px', borderRadius: 999,
+                    background: f.required ? 'var(--danger-soft)' : 'var(--surface-soft)',
+                    color: f.required ? 'var(--danger)' : 'var(--ink-soft)',
+                    fontWeight: f.required ? 700 : 500,
+                  }}>
+                    {f.label}{f.required && ' *'}
+                    {f.type === 'lookup' && <span style={{ opacity: 0.7 }}> (name)</span>}
+                  </span>
+                ))}
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 8 }}>
+                * required. Fields marked "(name)" are lookups - type the actual name (e.g. the Company's name), never an ID. Matching ignores case and extra spaces.
+              </p>
+            </>
           )}
         </div>
       </div>
 
-      {selectedDoctype && (
-        <div className="form-section">
-          <div className="form-section-header"><span className="num">2</span> Select Fields</div>
-          <div className="form-section-body">
-            {loadingFields ? (
-              <div style={{ color: 'var(--ink-faint)', fontSize: 13 }}>Loading fields…</div>
-            ) : (
-              <>
-                <p style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 12 }}>
-                  Required fields (marked *) are always included. Uncheck any optional field you don't need.
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
-                  {fields.map((f) => (
-                    <label key={f.name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '6px 8px', borderRadius: 6, background: selectedFields.includes(f.name) ? 'var(--surface-soft)' : 'transparent' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedFields.includes(f.name)}
-                        onChange={() => toggleField(f.name, f.required)}
-                        disabled={f.required}
-                      />
-                      {f.label}{f.required && <span style={{ color: 'var(--danger)' }}>*</span>}
-                      <span className="mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginLeft: 'auto' }}>{f.type}</span>
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+      <div className="form-section">
+        <div className="form-section-header"><span className="num">2</span> Download</div>
+        <div className="form-section-body" style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-outline" onClick={handleDownloadTemplate}>
+            <FileSpreadsheet size={14} style={{ marginRight: 6 }} /> Blank Template
+          </button>
+          <button className="btn btn-outline" onClick={handleExport}>
+            <Download size={14} style={{ marginRight: 6 }} /> Export Current Data
+          </button>
         </div>
-      )}
+      </div>
 
-      {selectedDoctype && selectedFields.length > 0 && (
-        <div className="form-section">
-          <div className="form-section-header"><span className="num">3</span> Download</div>
-          <div className="form-section-body">
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <button className="btn btn-outline" onClick={handleDownloadTemplate}>
-                <FileDown size={14} /> Download Blank Template
-              </button>
-              <button className="btn btn-outline" onClick={handleExportCurrent}>
-                <Download size={14} /> Download Current {doctypeLabel} Data
-              </button>
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: 10 }}>
-              Fill in the template with your data (keep the header row as-is), then upload it below.
-            </p>
+      <div className="form-section">
+        <div className="form-section-header"><span className="num">3</span> Upload &amp; Import</div>
+        <div className="form-section-body">
+          {error && <div className="error-banner">{error}</div>}
+          <div className="field">
+            <input type="file" accept=".csv" onChange={(e) => { setFile(e.target.files[0]); setResult(null) }} />
           </div>
-        </div>
-      )}
+          <button className="btn btn-primary" onClick={handleImport} disabled={!file || importing}>
+            <Upload size={14} style={{ marginRight: 6 }} /> {importing ? 'Importing…' : 'Import File'}
+          </button>
 
-      {selectedDoctype && (
-        <div className="form-section">
-          <div className="form-section-header"><span className="num">4</span> Upload &amp; Import</div>
-          <div className="form-section-body">
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <label className="photo-upload-btn">
-                <FileUp size={13} style={{ marginRight: 4 }} />
-                {file ? file.name : 'Choose CSV file'}
-                <input type="file" accept=".csv" onChange={(e) => setFile(e.target.files[0])} />
-              </label>
-              <button className="btn btn-primary" onClick={handleImport} disabled={!file || importing}>
-                {importing ? 'Importing…' : 'Start Import'}
-              </button>
-            </div>
-
-            {result && (
-              <div style={{ marginTop: 18 }}>
-                <div style={{ display: 'flex', gap: 24, marginBottom: 14 }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-faint)', fontWeight: 700, textTransform: 'uppercase' }}>Created</div>
-                    <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: 'var(--success)' }}>{result.created}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-faint)', fontWeight: 700, textTransform: 'uppercase' }}>Updated</div>
-                    <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary)' }}>{result.updated}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-faint)', fontWeight: 700, textTransform: 'uppercase' }}>Errors</div>
-                    <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: result.errors.length ? 'var(--danger)' : 'var(--ink-faint)' }}>{result.errors.length}</div>
-                  </div>
+          {result && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+                <div style={{ flex: 1, background: 'var(--success-soft, var(--primary-soft))', borderRadius: 10, padding: '12px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--success, var(--primary))' }}>{result.created}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>Created</div>
                 </div>
-                {result.errors.length > 0 && (
-                  <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
-                    {result.errors.map((err, i) => (
-                      <div key={i} style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', fontSize: 12 }}>
-                        <strong>Row {err.row}:</strong> {err.error}
+                <div style={{ flex: 1, background: 'var(--primary-soft)', borderRadius: 10, padding: '12px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--primary)' }}>{result.updated}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>Updated</div>
+                </div>
+                <div style={{ flex: 1, background: 'var(--danger-soft)', borderRadius: 10, padding: '12px 14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--danger)' }}>{result.failed}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-faint)' }}>Failed</div>
+                </div>
+              </div>
+
+              {result.errors.length > 0 && (
+                <div>
+                  <p style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <XCircle size={14} style={{ color: 'var(--danger)' }} /> Rows that failed:
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto' }}>
+                    {result.errors.map((e, i) => (
+                      <div key={i} style={{ fontSize: 12, padding: '8px 12px', background: 'var(--danger-soft)', borderRadius: 6, color: 'var(--danger)' }}>
+                        <strong>Row {e.row}:</strong> {e.message}
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+
+              {result.failed === 0 && (
+                <p style={{ fontSize: 12.5, color: 'var(--success, var(--primary))', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <CheckCircle2 size={14} /> All rows imported successfully.
+                </p>
+              )}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
