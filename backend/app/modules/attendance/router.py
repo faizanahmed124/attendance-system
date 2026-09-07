@@ -114,6 +114,22 @@ def list_check_ins(
     return service.list_check_ins(db, employee_id, skip, limit)
 
 
+@router.delete("/check-in-record/{check_in_id}")
+def delete_check_in(
+    check_in_id: int, db: Session = Depends(get_db),
+    current_user=Depends(require_permission("attendance", "delete")),
+):
+    """
+    Deletes one punch and recalculates that day's attendance summary
+    without it. If it was a genuine biometric punch (not a duplicate/bad
+    record), the next device sync will re-create it automatically, since
+    the device always returns its full history and sync only skips
+    punches that already exist in the database.
+    """
+    service.delete_check_in(db, check_in_id)
+    return {"message": "Check-in deleted - it will be re-fetched automatically on the next biometric sync if it's a genuine device punch"}
+
+
 @router.get("/check-in-logs", response_model=dict)
 def list_check_in_logs(
     skip: int = 0, limit: int = 20,

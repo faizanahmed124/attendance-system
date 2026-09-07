@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, time as time_cls, timezone
 
 from sqlalchemy.orm import Session
 
@@ -8,6 +8,8 @@ from app.modules.attendance.schema import (
     ShiftTypeCreate, ShiftTypeUpdate, CheckInCreate, AttendanceManualCreate, AttendanceUpdate,
     ShiftAssignmentCreate, ShiftAssignmentBulkCreate, ShiftAssignmentUpdate,
 )
+
+REGULAR_DUTY_HOURS = 8.0
 
 
 # ---------- Shift Type ----------
@@ -84,6 +86,29 @@ def list_check_ins(db: Session, employee_id: int, skip: int = 0, limit: int = 10
     )
 
 
+def delete_check_in(db: Session, check_in_id: int) -> None:
+    """
+    Deletes one punch and recalculates that employee's attendance summary
+    for the day without it. Deleting a bad/duplicate punch this way (as
+    opposed to editing the Attendance record directly) means the next
+    biometric sync will see there's no longer a matching CheckIn for that
+    employee+log_type+timestamp, and will re-create it from the device's
+    own history if it was actually a real punch that got deleted by
+    mistake - the device is always the source of truth to fall back on.
+    """
+    check_in = db.query(CheckIn).filter(CheckIn.id == check_in_id).first()
+    if not check_in:
+        raise NotFoundError("Check-in record not found")
+
+    employee_id = check_in.employee_id
+    day = check_in.timestamp.date()
+
+    db.delete(check_in)
+    db.commit()
+
+    _sync_attendance_for_day(db, employee_id, day)
+
+
 def list_all_check_ins(
     db: Session, skip: int = 0, limit: int = 100,
     employee_id: int | None = None, log_type: str | None = None,
@@ -132,12 +157,71 @@ def list_all_check_ins(
     return results, total
 
 
+def _parse_shift_time(val) -> time_cls:
+    """ShiftType.start_time/end_time might come back as a 'HH:MM:SS', 'HH:MM:SS.ffffff' string, or a real time object."""
+    if isinstance(val, time_cls):
+        return val
+    if isinstance(val, str):
+        main_part = val.split(".")[0]  # strip microseconds if present
+        parts = main_part.split(":")
+        return time_cls(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
+    raise ValueError(f"Unrecognized shift time value: {val!r}")
+
+
+def _get_local_timezone(db: Session):
+    """
+    Shift start/end times (e.g. "09:00:00") are entered by an admin as
+    LOCAL wall-clock time, but check_in_time/check_out_time are stored as
+    UTC (see zkteco_sync.py's own docstring on this exact point). Without
+    converting shift times to UTC first, comparing them directly against
+    UTC check-in/check-out times silently shifts everything by the
+    timezone offset (5 hours for Pakistan) - which is exactly what caused
+    "Early exit: Yes" on someone who left at 10 PM, and 0 overtime on
+    someone who clearly worked well past 8 hours. Same timezone-resolution
+    pattern as zkteco_sync.py's _get_device_timezone(), reused here so
+    both stay consistent with whatever Settings > System Settings has
+    configured.
+    """
+    from zoneinfo import ZoneInfo
+    try:
+        from app.modules.system_settings.service import get_settings as get_system_settings
+        settings = get_system_settings(db)
+        return ZoneInfo(settings.time_zone)
+    except Exception:  # noqa: BLE001 - bad/missing settings should never crash attendance syncing
+        return ZoneInfo("Asia/Karachi")
+
+
+def _localized_shift_datetime(day, local_time: time_cls, tz) -> datetime:
+    """Combines a shift's local wall-clock time with a date, then converts it to the naive-UTC datetime everything else in this app uses."""
+    aware_local = datetime.combine(day, local_time).replace(tzinfo=tz)
+    return aware_local.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _sync_attendance_for_day(db: Session, employee_id: int, day) -> Attendance:
     """
     Rebuild the Attendance summary row for one employee/day from all
-    CheckIn events on that day. Earliest IN -> check_in_time,
-    latest OUT -> check_out_time.
+    CheckIn events on that day - earliest IN -> check_in_time, latest OUT
+    -> check_out_time. Runs automatically after every check-in (so it
+    fires continuously from biometric sync, roughly every couple minutes),
+    so this is the ONE place attendance gets computed - there's no
+    separate process that can silently overwrite it with different
+    numbers.
+
+    Shift-aware, same rules as the standalone auto-attendance batch
+    processor:
+      - Early arrival never counts - hours are computed from
+        max(actual check-in, shift's scheduled start).
+      - If the employee has "Allow Overtime" enabled, duty is capped at
+        a flat 8 regular hours and anything beyond that is tracked
+        separately as overtime_hours.
+      - If not, hours are capped at the shift's own scheduled duration -
+        staying late earns nothing extra without permission.
+      - If the employee has no shift assigned at all, falls back to the
+        old plain "checkout minus checkin" calculation rather than
+        leaving the record blank.
     """
+    from app.modules.employee.model import Employee
+
     events = (
         db.query(CheckIn)
         .filter(
@@ -155,9 +239,53 @@ def _sync_attendance_for_day(db: Session, employee_id: int, day) -> Attendance:
     check_in_time = in_events[0].timestamp if in_events else None
     check_out_time = out_events[-1].timestamp if out_events else None
 
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    shift_type_id = employee.shift_type_id if employee else None
+    allow_overtime = bool(employee.allow_overtime) if employee else False
+    shift = db.query(ShiftType).filter(ShiftType.id == shift_type_id).first() if shift_type_id else None
+
     working_hours = None
-    if check_in_time and check_out_time and check_out_time > check_in_time:
+    overtime_hours = 0.0
+    late_entry = False
+    early_exit = False
+
+    if check_in_time and shift and shift.start_time and shift.end_time:
+        tz = _get_local_timezone(db)
+        shift_start = _localized_shift_datetime(day, _parse_shift_time(shift.start_time), tz)
+        shift_end = _localized_shift_datetime(day, _parse_shift_time(shift.end_time), tz)
+
+        grace_in = timedelta(minutes=shift.late_entry_grace_minutes or 0)
+        late_entry = check_in_time > (shift_start + grace_in)
+
+        effective_start = max(check_in_time, shift_start)  # early arrival never counts
+        actual_worked = 0.0
+        if check_out_time:
+            grace_out = timedelta(minutes=shift.early_exit_grace_minutes or 0)
+            early_exit = check_out_time < (shift_end - grace_out)
+            actual_worked = max(0.0, (check_out_time - effective_start).total_seconds() / 3600)
+
+        if allow_overtime:
+            working_hours = round(min(actual_worked, REGULAR_DUTY_HOURS), 2)
+            overtime_hours = round(max(0.0, actual_worked - REGULAR_DUTY_HOURS), 2)
+        else:
+            shift_duration = (shift_end - shift_start).total_seconds() / 3600
+            working_hours = round(min(actual_worked, shift_duration), 2)
+
+    elif check_in_time and check_out_time and check_out_time > check_in_time:
+        # no shift assigned - fall back to the simple calculation rather than leaving it blank
         working_hours = round((check_out_time - check_in_time).total_seconds() / 3600, 2)
+
+    threshold_absent = (shift.working_hours_threshold_absent if shift else None) or 0
+    threshold_half = (shift.working_hours_threshold_half_day if shift else None) or 0
+
+    if not check_in_time:
+        status = "Absent"
+    elif threshold_absent and (working_hours or 0) < threshold_absent:
+        status = "Absent"
+    elif threshold_half and (working_hours or 0) < threshold_half:
+        status = "Half Day"
+    else:
+        status = "Present"
 
     attendance = (
         db.query(Attendance)
@@ -168,10 +296,14 @@ def _sync_attendance_for_day(db: Session, employee_id: int, day) -> Attendance:
         attendance = Attendance(employee_id=employee_id, attendance_date=day)
         db.add(attendance)
 
+    attendance.shift_type_id = shift_type_id
     attendance.check_in_time = check_in_time
     attendance.check_out_time = check_out_time
     attendance.working_hours = working_hours
-    attendance.status = "Present" if check_in_time else "Absent"
+    attendance.overtime_hours = overtime_hours
+    attendance.status = status
+    attendance.late_entry = late_entry
+    attendance.early_exit = early_exit
 
     db.commit()
     db.refresh(attendance)

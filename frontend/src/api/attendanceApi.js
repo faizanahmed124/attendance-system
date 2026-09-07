@@ -20,3 +20,5 @@ export const createShiftAssignment = (data) => axiosClient.post('/api/attendance
 export const bulkCreateShiftAssignments = (data) => axiosClient.post('/api/attendance/shift-assignments/bulk', data)
 export const updateShiftAssignment = (id, data) => axiosClient.put(`/api/attendance/shift-assignments/${id}`, data)
 export const deleteShiftAssignment = (id) => axiosClient.delete(`/api/attendance/shift-assignments/${id}`)
+export const createCheckIn = (data) => axiosClient.post('/api/attendance/check-in', data)
+export const deleteCheckIn = (id) => axiosClient.delete(`/api/attendance/check-in-record/${id}`)

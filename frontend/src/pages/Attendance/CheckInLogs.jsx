@@ -1,9 +1,20 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { listCheckInLogs } from '../../api/attendanceApi'
+import { Trash2, Plus } from 'lucide-react'
+import Modal from '../../components/Modal'
+import { listCheckInLogs, createCheckIn, deleteCheckIn } from '../../api/attendanceApi'
 import { listEmployees } from '../../api/employeeApi'
+import { extractErrorMessage } from '../../utils/errorMessage'
 
 const PAGE_SIZE = 20
+
+function nowForInput() {
+  const d = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+const emptyCreateForm = { employee_id: '', log_type: 'IN', timestamp: nowForInput(), source: 'web', device_id: '' }
 
 export default function CheckInLogs() {
   const navigate = useNavigate()
@@ -13,6 +24,13 @@ export default function CheckInLogs() {
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({ employee_id: '', log_type: '', from_date: '', to_date: '' })
+  const [error, setError] = useState('')
+
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createForm, setCreateForm] = useState(emptyCreateForm)
+  const [creating, setCreating] = useState(false)
+
+  const [deletingId, setDeletingId] = useState(null)
 
   const load = () => {
     setLoading(true)
@@ -38,6 +56,51 @@ export default function CheckInLogs() {
     load()
   }
 
+  const openCreate = () => {
+    setCreateForm({ ...emptyCreateForm, employee_id: filters.employee_id || (employees[0]?.id ?? '') })
+    setError('')
+    setShowCreateModal(true)
+  }
+
+  const handleCreate = async (e) => {
+    e.preventDefault()
+    setError('')
+    setCreating(true)
+    try {
+      await createCheckIn({
+        employee_id: Number(createForm.employee_id),
+        log_type: createForm.log_type,
+        timestamp: new Date(createForm.timestamp).toISOString(),
+        source: createForm.source || 'web',
+        device_id: createForm.device_id || null,
+      })
+      setShowCreateModal(false)
+      load()
+    } catch (err) {
+      setError(extractErrorMessage(err, 'Could not create check-in'))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleDelete = async (log) => {
+    if (!window.confirm(
+      `Delete this ${log.log_type} punch for ${log.employee_name} at ${new Date(log.timestamp).toLocaleString()}?\n\n` +
+      `If it's a real biometric punch, it will come back automatically on the next device sync. Use this to remove duplicates or mistakes.`
+    )) return
+
+    setDeletingId(log.id)
+    setError('')
+    try {
+      await deleteCheckIn(log.id)
+      load()
+    } catch (err) {
+      setError(extractErrorMessage(err, 'Could not delete this check-in'))
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   const totalPages = Math.max(Math.ceil(total / PAGE_SIZE), 1)
 
   return (
@@ -47,8 +110,15 @@ export default function CheckInLogs() {
           <h1>Check-in Logs</h1>
           <p>Every check-in / check-out event across all employees, including biometric device syncs.</p>
         </div>
-        <button className="btn btn-outline" onClick={() => navigate('/check-in')}>Manual Punch</button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-outline" onClick={() => navigate('/check-in')}>Manual Punch</button>
+          <button className="btn btn-primary" onClick={openCreate} disabled={employees.length === 0}>
+            <Plus size={14} style={{ marginRight: 6 }} /> New Check-in
+          </button>
+        </div>
       </div>
+
+      {error && <div className="error-banner">{error}</div>}
 
       <div className="toolbar">
         <div className="filter-bar">
@@ -83,6 +153,7 @@ export default function CheckInLogs() {
                 <th>Time</th>
                 <th>ID</th>
                 <th>Source</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -97,6 +168,16 @@ export default function CheckInLogs() {
                   <td className="mono">{new Date(log.timestamp).toLocaleString()}</td>
                   <td className="mono" style={{ fontSize: 11.5 }}>{log.checkin_id}</td>
                   <td style={{ textTransform: 'capitalize' }}>{log.source}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className="btn btn-danger btn-sm"
+                      onClick={() => handleDelete(log)}
+                      disabled={deletingId === log.id}
+                      title="Delete this punch"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -111,6 +192,62 @@ export default function CheckInLogs() {
         <button className="btn btn-outline btn-sm" onClick={() => setPage((p) => Math.max(p - 1, 0))} disabled={page === 0}>← Prev</button>
         <button className="btn btn-outline btn-sm" onClick={() => setPage((p) => Math.min(p + 1, totalPages - 1))} disabled={page >= totalPages - 1}>Next →</button>
       </div>
+
+      {showCreateModal && (
+        <Modal
+          title="New Check-in"
+          onClose={() => setShowCreateModal(false)}
+          footer={
+            <>
+              <button className="btn btn-outline" onClick={() => setShowCreateModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleCreate} disabled={creating}>
+                {creating ? 'Saving…' : 'Create Check-in'}
+              </button>
+            </>
+          }
+        >
+          {error && <div className="error-banner">{error}</div>}
+          <form onSubmit={handleCreate}>
+            <div className="field">
+              <label>Employee</label>
+              <select value={createForm.employee_id} onChange={(e) => setCreateForm({ ...createForm, employee_id: e.target.value })} required autoFocus>
+                <option value="">— Select —</option>
+                {employees.map((emp) => <option key={emp.id} value={emp.id}>{emp.employee_code} — {emp.full_name}</option>)}
+              </select>
+            </div>
+            <div className="form-grid">
+              <div className="field">
+                <label>Log Type</label>
+                <select value={createForm.log_type} onChange={(e) => setCreateForm({ ...createForm, log_type: e.target.value })}>
+                  <option value="IN">IN (Check-in)</option>
+                  <option value="OUT">OUT (Check-out)</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Date &amp; Time</label>
+                <input type="datetime-local" value={createForm.timestamp} onChange={(e) => setCreateForm({ ...createForm, timestamp: e.target.value })} required />
+              </div>
+            </div>
+            <div className="form-grid">
+              <div className="field">
+                <label>Source</label>
+                <select value={createForm.source} onChange={(e) => setCreateForm({ ...createForm, source: e.target.value })}>
+                  <option value="web">Web (manual entry)</option>
+                  <option value="biometric">Biometric</option>
+                  <option value="mobile">Mobile</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Device ID (optional)</label>
+                <input value={createForm.device_id} onChange={(e) => setCreateForm({ ...createForm, device_id: e.target.value })} placeholder="Leave blank for manual entries" />
+              </div>
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--ink-faint)' }}>
+              This immediately recalculates that employee's attendance for the day (status, hours, overtime), the same way a real biometric punch would.
+            </p>
+          </form>
+        </Modal>
+      )}
     </div>
   )
 }
