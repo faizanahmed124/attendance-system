@@ -38,6 +38,7 @@ from app.modules.travel_request import model as travel_request_model  # noqa
 from app.modules.recognition import model as recognition_model  # noqa
 from app.modules.notification import model as notification_model  # noqa
 from app.modules.helpdesk import model as helpdesk_model  # noqa
+from app.modules.attendance_settings import model as attendance_settings_model  # noqa
 
 # Routers
 from app.modules.auth.router import router as auth_router
@@ -63,6 +64,7 @@ from app.modules.recognition.router import router as recognition_router
 from app.modules.notification.router import router as notification_router
 from app.modules.helpdesk.router import router as helpdesk_router
 from app.modules.reports.router import router as reports_router
+from app.modules.attendance_settings.router import router as attendance_settings_router
 
 app = FastAPI(title=settings.APP_NAME)
 
@@ -135,6 +137,7 @@ app.include_router(recognition_router)
 app.include_router(notification_router)
 app.include_router(helpdesk_router)
 app.include_router(reports_router)
+app.include_router(attendance_settings_router)
 
 
 @app.get("/")

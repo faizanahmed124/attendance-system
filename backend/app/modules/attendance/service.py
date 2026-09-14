@@ -9,7 +9,6 @@ from app.modules.attendance.schema import (
     ShiftAssignmentCreate, ShiftAssignmentBulkCreate, ShiftAssignmentUpdate,
 )
 
-REGULAR_DUTY_HOURS = 8.0
 
 
 # ---------- Shift Type ----------
@@ -244,48 +243,7 @@ def _sync_attendance_for_day(db: Session, employee_id: int, day) -> Attendance:
     allow_overtime = bool(employee.allow_overtime) if employee else False
     shift = db.query(ShiftType).filter(ShiftType.id == shift_type_id).first() if shift_type_id else None
 
-    working_hours = None
-    overtime_hours = 0.0
-    late_entry = False
-    early_exit = False
-
-    if check_in_time and shift and shift.start_time and shift.end_time:
-        tz = _get_local_timezone(db)
-        shift_start = _localized_shift_datetime(day, _parse_shift_time(shift.start_time), tz)
-        shift_end = _localized_shift_datetime(day, _parse_shift_time(shift.end_time), tz)
-
-        grace_in = timedelta(minutes=shift.late_entry_grace_minutes or 0)
-        late_entry = check_in_time > (shift_start + grace_in)
-
-        effective_start = max(check_in_time, shift_start)  # early arrival never counts
-        actual_worked = 0.0
-        if check_out_time:
-            grace_out = timedelta(minutes=shift.early_exit_grace_minutes or 0)
-            early_exit = check_out_time < (shift_end - grace_out)
-            actual_worked = max(0.0, (check_out_time - effective_start).total_seconds() / 3600)
-
-        if allow_overtime:
-            working_hours = round(min(actual_worked, REGULAR_DUTY_HOURS), 2)
-            overtime_hours = round(max(0.0, actual_worked - REGULAR_DUTY_HOURS), 2)
-        else:
-            shift_duration = (shift_end - shift_start).total_seconds() / 3600
-            working_hours = round(min(actual_worked, shift_duration), 2)
-
-    elif check_in_time and check_out_time and check_out_time > check_in_time:
-        # no shift assigned - fall back to the simple calculation rather than leaving it blank
-        working_hours = round((check_out_time - check_in_time).total_seconds() / 3600, 2)
-
-    threshold_absent = (shift.working_hours_threshold_absent if shift else None) or 0
-    threshold_half = (shift.working_hours_threshold_half_day if shift else None) or 0
-
-    if not check_in_time:
-        status = "Absent"
-    elif threshold_absent and (working_hours or 0) < threshold_absent:
-        status = "Absent"
-    elif threshold_half and (working_hours or 0) < threshold_half:
-        status = "Half Day"
-    else:
-        status = "Present"
+    fields = _calculate_attendance_fields(db, check_in_time, check_out_time, shift, allow_overtime, day)
 
     attendance = (
         db.query(Attendance)
@@ -299,15 +257,84 @@ def _sync_attendance_for_day(db: Session, employee_id: int, day) -> Attendance:
     attendance.shift_type_id = shift_type_id
     attendance.check_in_time = check_in_time
     attendance.check_out_time = check_out_time
-    attendance.working_hours = working_hours
-    attendance.overtime_hours = overtime_hours
-    attendance.status = status
-    attendance.late_entry = late_entry
-    attendance.early_exit = early_exit
+    attendance.working_hours = fields["working_hours"]
+    attendance.overtime_hours = fields["overtime_hours"]
+    attendance.status = fields["status"]
+    attendance.late_entry = fields["late_entry"]
+    attendance.early_exit = fields["early_exit"]
 
     db.commit()
     db.refresh(attendance)
     return attendance
+
+
+def _calculate_attendance_fields(db: Session, check_in_time, check_out_time, shift, allow_overtime: bool, day) -> dict:
+    """
+    The single shared calculation used by BOTH the automatic (live
+    check-in) sync path and the manual Edit-a-record path, so a record
+    edited by hand and one computed from real punches always agree.
+
+    Every piece of this is gated by Settings > Attendance Settings - if
+    an admin turns a feature off there, that field comes back as None
+    (not just False/0) so the frontend can tell the difference between
+    "computed and false" vs. "this isn't tracked at all" and hide the
+    row entirely rather than showing a misleading value.
+    """
+    from app.modules.attendance_settings.service import get_settings as get_attendance_settings
+    settings = get_attendance_settings(db)
+
+    duty_hours = settings.standard_duty_hours
+
+    working_hours = None
+    overtime_hours = 0.0 if settings.enable_overtime_tracking else None
+    late_entry = False if settings.enable_late_entry_tracking else None
+    early_exit = False if settings.enable_early_exit_tracking else None
+
+    if check_in_time and shift and shift.start_time and shift.end_time:
+        tz = _get_local_timezone(db)
+        shift_start = _localized_shift_datetime(day, _parse_shift_time(shift.start_time), tz)
+        shift_end = _localized_shift_datetime(day, _parse_shift_time(shift.end_time), tz)
+
+        if settings.enable_late_entry_tracking:
+            grace_in = timedelta(minutes=shift.late_entry_grace_minutes or 0)
+            late_entry = check_in_time > (shift_start + grace_in)
+
+        effective_start = max(check_in_time, shift_start)  # early arrival never counts
+        actual_worked = 0.0
+        if check_out_time:
+            if settings.enable_early_exit_tracking:
+                grace_out = timedelta(minutes=shift.early_exit_grace_minutes or 0)
+                early_exit = check_out_time < (shift_end - grace_out)
+            actual_worked = max(0.0, (check_out_time - effective_start).total_seconds() / 3600)
+
+        if settings.enable_overtime_tracking and allow_overtime:
+            working_hours = round(min(actual_worked, duty_hours), 2)
+            overtime_hours = round(max(0.0, actual_worked - duty_hours), 2)
+        else:
+            # overtime feature is off (globally, or for this employee) -
+            # cap at the shift's own scheduled duration instead
+            shift_duration = (shift_end - shift_start).total_seconds() / 3600
+            working_hours = round(min(actual_worked, shift_duration), 2)
+
+    elif check_in_time and check_out_time and check_out_time > check_in_time:
+        working_hours = round((check_out_time - check_in_time).total_seconds() / 3600, 2)
+
+    threshold_absent = (shift.working_hours_threshold_absent if shift else None) or 0
+    threshold_half = (shift.working_hours_threshold_half_day if shift else None) or 0
+
+    if not check_in_time:
+        status = "Absent"
+    elif settings.enable_auto_absent_marking and threshold_absent and (working_hours or 0) < threshold_absent:
+        status = "Absent"
+    elif settings.enable_half_day_marking and threshold_half and (working_hours or 0) < threshold_half:
+        status = "Half Day"
+    else:
+        status = "Present"
+
+    return {
+        "working_hours": working_hours, "overtime_hours": overtime_hours,
+        "status": status, "late_entry": late_entry, "early_exit": early_exit,
+    }
 
 
 # ---------- Attendance (daily summary) ----------
@@ -337,16 +364,35 @@ def get_attendance(db: Session, attendance_id: int) -> Attendance:
 
 
 def update_attendance(db: Session, attendance_id: int, payload) -> Attendance:
-    """Edit a single attendance record directly (the 'open one record' detail view)."""
+    """
+    Edit a single attendance record directly (the 'open one record'
+    detail view). Uses the SAME shift/overtime-aware calculation as the
+    automatic sync path (see _calculate_attendance_fields), so manually
+    correcting a check-in/check-out time here produces the exact same
+    working_hours/overtime_hours/status/late_entry/early_exit a live
+    biometric punch would - there used to be a separate, simpler
+    calculation here that didn't know about shifts or overtime at all,
+    which is what caused a manually-edited record to show 0 overtime
+    despite clearly working well past 8 hours.
+    """
+    from app.modules.employee.model import Employee
+
     attendance = get_attendance(db, attendance_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(attendance, field, value)
 
-    # recompute working hours if both times are present
-    if attendance.check_in_time and attendance.check_out_time and attendance.check_out_time > attendance.check_in_time:
-        attendance.working_hours = round(
-            (attendance.check_out_time - attendance.check_in_time).total_seconds() / 3600, 2
-        )
+    employee = db.query(Employee).filter(Employee.id == attendance.employee_id).first()
+    allow_overtime = bool(employee.allow_overtime) if employee else False
+    shift = db.query(ShiftType).filter(ShiftType.id == attendance.shift_type_id).first() if attendance.shift_type_id else None
+
+    fields = _calculate_attendance_fields(
+        db, attendance.check_in_time, attendance.check_out_time, shift, allow_overtime, attendance.attendance_date
+    )
+    attendance.working_hours = fields["working_hours"]
+    attendance.overtime_hours = fields["overtime_hours"]
+    attendance.status = fields["status"]
+    attendance.late_entry = fields["late_entry"]
+    attendance.early_exit = fields["early_exit"]
 
     db.commit()
     db.refresh(attendance)

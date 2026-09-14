@@ -133,11 +133,15 @@ export default function AttendanceDetail() {
             <div className="row"><span>Date</span><span className="mono">{record.attendance_date}</span></div>
             <div className="row"><span>Shift</span><span>{shiftLabel}</span></div>
             <div className="row"><span>Working hours</span><span className="mono">{record.working_hours ?? '—'}</span></div>
-            {employee?.allow_overtime && (
-              <div className="row"><span>Overtime hours</span><span className="mono" style={{ color: record.overtime_hours > 0 ? 'var(--primary)' : undefined, fontWeight: record.overtime_hours > 0 ? 700 : undefined }}>{record.overtime_hours ?? 0}</span></div>
+            {record.overtime_hours !== null && record.overtime_hours !== undefined && (
+              <div className="row"><span>Overtime hours</span><span className="mono" style={{ color: record.overtime_hours > 0 ? 'var(--primary)' : undefined, fontWeight: record.overtime_hours > 0 ? 700 : undefined }}>{record.overtime_hours}</span></div>
             )}
-            <div className="row"><span>Late entry</span><span>{record.late_entry ? 'Yes' : 'No'}</span></div>
-            <div className="row"><span>Early exit</span><span>{record.early_exit ? 'Yes' : 'No'}</span></div>
+            {record.late_entry !== null && record.late_entry !== undefined && (
+              <div className="row"><span>Late entry</span><span>{record.late_entry ? 'Yes' : 'No'}</span></div>
+            )}
+            {record.early_exit !== null && record.early_exit !== undefined && (
+              <div className="row"><span>Early exit</span><span>{record.early_exit ? 'Yes' : 'No'}</span></div>
+            )}
           </div>
 
           {employee && (
@@ -156,8 +160,8 @@ export default function AttendanceDetail() {
                   <DetailRow label="Check-in" value={<span className="mono">{record.check_in_time ? new Date(record.check_in_time).toLocaleString() : '—'}</span>} />
                   <DetailRow label="Check-out" value={<span className="mono">{record.check_out_time ? new Date(record.check_out_time).toLocaleString() : '—'}</span>} />
                   <DetailRow label="Working hours" value={<span className="mono">{record.working_hours ?? '—'}</span>} />
-                  {employee?.allow_overtime && (
-                    <DetailRow label="Overtime hours" value={<span className="mono">{record.overtime_hours ?? 0}</span>} />
+                  {record.overtime_hours !== null && record.overtime_hours !== undefined && (
+                    <DetailRow label="Overtime hours" value={<span className="mono">{record.overtime_hours}</span>} />
                   )}
                 </div>
               ) : (
@@ -172,11 +176,6 @@ export default function AttendanceDetail() {
                   </div>
                 </div>
               )}
-              {!employee?.allow_overtime && (
-                <p style={{ fontSize: 11, color: 'var(--ink-faint)', marginTop: 10 }}>
-                  This employee doesn't have "Allow Overtime" enabled on their profile, so hours beyond their shift's scheduled duration aren't credited.
-                </p>
-              )}
             </div>
           </div>
 
@@ -187,8 +186,12 @@ export default function AttendanceDetail() {
                 <div style={{ display: 'grid', gap: 12 }}>
                   <DetailRow label="Status" value={<StatusPill status={record.status} />} />
                   <DetailRow label="Shift" value={shiftLabel} />
-                  <DetailRow label="Late entry" value={record.late_entry ? 'Yes' : 'No'} />
-                  <DetailRow label="Early exit" value={record.early_exit ? 'Yes' : 'No'} />
+                  {record.late_entry !== null && record.late_entry !== undefined && (
+                    <DetailRow label="Late entry" value={record.late_entry ? 'Yes' : 'No'} />
+                  )}
+                  {record.early_exit !== null && record.early_exit !== undefined && (
+                    <DetailRow label="Early exit" value={record.early_exit ? 'Yes' : 'No'} />
+                  )}
                 </div>
               ) : (
                 <div className="form-grid">

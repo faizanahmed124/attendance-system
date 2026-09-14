@@ -139,6 +139,7 @@ export const MODULE_OVERVIEWS = {
       { label: 'Check-in / Check-out', to: '/check-in' },
       { label: 'Shift Type', to: '/attendance/shift-types', countKey: 'shiftTypes' },
       { label: 'Shift Assignment', to: '/attendance/shift-assignments' },
+      { label: 'Attendance Settings', to: '/settings/attendance' },
     ],
     sections: [
       {
@@ -167,6 +168,12 @@ export const MODULE_OVERVIEWS = {
         links: [
           { label: 'Shift Types', to: '/attendance/shift-types' },
           { label: 'Shift Assignments', to: '/attendance/shift-assignments' },
+        ],
+      },
+      {
+        title: 'Configuration',
+        links: [
+          { label: 'Attendance Settings', to: '/settings/attendance' },
         ],
       },
     ],
@@ -262,6 +269,7 @@ export const MODULE_OVERVIEWS = {
     shortcuts: [
       { label: 'Permissions', to: '/settings/permissions' },
       { label: 'System Settings', to: '/settings/system' },
+      { label: 'Attendance Settings', to: '/settings/attendance' },
       { label: 'Data Import', to: '/settings/data-import' },
       { label: 'Users', to: '/users' },
     ],
@@ -277,6 +285,7 @@ export const MODULE_OVERVIEWS = {
         title: 'Configuration',
         links: [
           { label: 'System Settings', to: '/settings/system' },
+          { label: 'Attendance Settings', to: '/settings/attendance' },
           { label: 'Data Import', to: '/settings/data-import' },
         ],
       },

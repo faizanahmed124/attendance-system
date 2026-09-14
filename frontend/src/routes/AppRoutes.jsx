@@ -64,6 +64,7 @@ import TicketForm from '../pages/Helpdesk/TicketForm'
 import TicketDetail from '../pages/Helpdesk/TicketDetail'
 import Reports from '../pages/Reports/Reports'
 import ReportViewer from '../pages/Reports/ReportViewer'
+import AttendanceSettings from '../pages/Settings/AttendanceSettings'
 
 export default function AppRoutes() {
   return (
@@ -138,6 +139,7 @@ export default function AppRoutes() {
       <Route path="/helpdesk/tickets/:id" element={<TicketDetail />} />
       <Route path="/reports" element={<Reports />} />
       <Route path="/reports/:reportKey" element={<ReportViewer />} />
+      <Route path="/settings/attendance" element={<AttendanceSettings />} />
       </Route>
     </Routes>
   )
