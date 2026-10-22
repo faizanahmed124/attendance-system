@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import DataTable from '../../components/DataTable'
 import StatusPill from '../../components/StatusPill'
@@ -20,6 +20,11 @@ export default function Employee() {
   const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [error, setError] = useState('')
 
+  const [search, setSearch] = useState('')
+  const [departmentFilter, setDepartmentFilter] = useState('')
+  const [designationFilter, setDesignationFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+
   const load = () => {
     setLoading(true)
     Promise.all([listEmployees(), listDepartments(), listDesignations()])
@@ -35,6 +40,26 @@ export default function Employee() {
 
   const deptName = (id) => departments.find((d) => d.id === id)?.name || `#${id}`
   const desigTitle = (id) => designations.find((d) => d.id === id)?.title || `#${id}`
+
+  const filteredEmployees = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return employees.filter((emp) => {
+      if (q && !(emp.employee_code?.toLowerCase().includes(q) || emp.full_name?.toLowerCase().includes(q))) return false
+      if (departmentFilter && String(emp.department_id) !== departmentFilter) return false
+      if (designationFilter && String(emp.designation_id) !== designationFilter) return false
+      if (statusFilter && emp.status !== statusFilter) return false
+      return true
+    })
+  }, [employees, search, departmentFilter, designationFilter, statusFilter])
+
+  const clearFilters = () => {
+    setSearch('')
+    setDepartmentFilter('')
+    setDesignationFilter('')
+    setStatusFilter('')
+  }
+
+  const hasActiveFilters = search || departmentFilter || designationFilter || statusFilter
 
   const bulkFields = [
     { name: 'status', label: 'Status', type: 'select', options: STATUS_OPTIONS },
@@ -89,6 +114,33 @@ export default function Employee() {
 
       {error && <div className="error-banner">{error}</div>}
 
+      <div className="toolbar">
+        <div className="filter-bar">
+          <input
+            type="text"
+            placeholder="Search by name or code…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ minWidth: 220 }}
+          />
+          <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
+            <option value="">All departments</option>
+            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <select value={designationFilter} onChange={(e) => setDesignationFilter(e.target.value)}>
+            <option value="">All designations</option>
+            {designations.map((d) => <option key={d.id} value={d.id}>{d.title}</option>)}
+          </select>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="">All statuses</option>
+            {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          {hasActiveFilters && (
+            <button className="btn btn-outline btn-sm" onClick={clearFilters}>Clear</button>
+          )}
+        </div>
+      </div>
+
       {selectedIds.length > 0 && (
         <div className="toolbar" style={{ background: 'var(--primary-soft)', padding: '10px 16px', borderRadius: 10, marginBottom: 14 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--primary)' }}>{selectedIds.length} selected</span>
@@ -100,13 +152,21 @@ export default function Employee() {
         </div>
       )}
 
+      {!loading && (
+        <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', marginBottom: 10 }}>
+          {hasActiveFilters
+            ? `${filteredEmployees.length} of ${employees.length} employees`
+            : `${employees.length} employees`}
+        </div>
+      )}
+
       {loading ? (
         <div className="card card-pad">Loading…</div>
       ) : (
         <DataTable
           columns={columns}
-          data={employees}
-          emptyMessage="No employees yet"
+          data={filteredEmployees}
+          emptyMessage={hasActiveFilters ? 'No employees match these filters' : 'No employees yet'}
           onRowClick={(row) => navigate(`/employees/${row.id}`)}
           selectable
           selectedIds={selectedIds}
