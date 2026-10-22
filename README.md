@@ -29,11 +29,11 @@ pip install -r requirements.txt
 
 cp .env.example .env           
 python seed.py                  
-uvicorn app.main:app --reload  
+uvicorn app.main:app --reload --port 8089  
 
 Seeded login: **admin@example.com / Admin@123**
 
-API docs (interactive): http://localhost:8000/docs
+API docs (interactive): http://localhost:8089/docs
 
 ### Switching from SQLite to PostgreSQL
 Edit `DATABASE_URL` in `.env`, e.g.:

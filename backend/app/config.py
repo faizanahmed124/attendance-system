@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
 
-    # CORS
-    FRONTEND_ORIGIN: str = "http://localhost:5173"
+    # CORS - comma-separated list of allowed frontend origins
+    FRONTEND_ORIGIN: str = "http://localhost:5176"
 
     # Biometric device polling (ZKTeco). Off by default - turn on once you
     # have a real device configured under Integration > Biometric Devices.
